@@ -120,6 +120,16 @@ def app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def resource_path(rel):
+    """打包进 exe 的资源路径（PyInstaller 解压到 _MEIPASS）。"""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, rel)
+
+
+# 内置默认宠物：Codex 官方默认宠物（来自 persistent.oaistatic.com/codex/pets/v1）
+BUNDLED_PET = resource_path(os.path.join("assets", "codex-default.webp"))
+
+
 def load_config():
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -289,6 +299,11 @@ class UPet:
 
         if os.environ.get("UPET_SELFTEST"):
             self.root.after(3000, self.quit)
+        elif not self.cfg.get("chooser_shown"):
+            # 首次使用：宠物先出现，再弹出选择窗（不阻塞启动）
+            self.cfg["chooser_shown"] = True
+            save_config(self.cfg)
+            self.root.after(800, self.open_chooser)
 
     # ---------- 精灵图加载 ----------
     def try_load_initial_sheet(self):
@@ -296,17 +311,10 @@ class UPet:
         if self.cfg.get("sheet"):
             candidates.append(self.cfg["sheet"])
         candidates.append(os.path.join(app_dir(), "spritesheet.webp"))
+        candidates.append(BUNDLED_PET)   # 兜底：内置的 Codex 默认宠物
         for p in candidates:
             if p and os.path.exists(p) and self.load_sheet(p, quiet=True):
                 return True
-        # 首次使用：先看看 Codex 宠物目录里有没有现成的
-        pets = self.installed_pets()
-        if pets and self.load_sheet(pets[0][1], quiet=True):
-            return True
-        messagebox.showinfo(APP_NAME,
-                            "欢迎使用 UPet！\n\n"
-                            "请选择一张宠物精灵图（WebP/PNG）或宠物 zip 包。\n"
-                            "还没有宠物？之后可以右键宠物 →「获取宠物」逛宠物站。")
         return self.import_sheet()
 
     def load_sheet(self, path, quiet=False):
@@ -318,7 +326,11 @@ class UPet:
             return False
         self.sheet = sheet
         self.frame_cache = {}
-        self.cfg["sheet"] = path
+        # 内置宠物的临时解压路径不写入配置（每次启动位置都会变）
+        if os.path.normpath(path) != os.path.normpath(BUNDLED_PET):
+            self.cfg["sheet"] = path
+        else:
+            self.cfg.pop("sheet", None)
         save_config(self.cfg)
         return True
 
@@ -345,6 +357,69 @@ class UPet:
             self.set_anim("idle")
             self.set_anim_size()
         return ok
+
+    def open_chooser(self):
+        """宠物选择弹窗：内置/已安装列表 + 预览 + 导入 + 宠物站入口。"""
+        if getattr(self, "_chooser", None) and self._chooser.winfo_exists():
+            self._chooser.lift()
+            return
+        win = tk.Toplevel(self.root)
+        self._chooser = win
+        win.title("选择宠物 - UPet")
+        win.attributes("-topmost", True)
+        win.resizable(False, False)
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        win.geometry(f"+{max(20, sw // 2 - 210)}+{max(20, sh // 2 - 180)}")
+
+        items = [("Codex（内置默认）", BUNDLED_PET)] + self.installed_pets()
+
+        lb = tk.Listbox(win, height=max(6, min(12, len(items))), width=30,
+                        exportselection=False)
+        for name, _ in items:
+            lb.insert("end", name)
+        lb.grid(row=0, column=0, padx=(12, 8), pady=12, sticky="ns")
+
+        prev = tk.Label(win, anchor="center")
+        prev.grid(row=0, column=1, padx=(0, 12), pady=12)
+
+        def show_preview(_e=None):
+            sel = lb.curselection()
+            if not sel:
+                return
+            try:
+                sh_ = SpriteSheet(items[sel[0]][1])
+                cell = sh_.image.crop((0, 0, sh_.cell_w, sh_.cell_h))
+                cell.thumbnail((160, 176), Image.Resampling.LANCZOS)
+                win._thumb = ImageTk.PhotoImage(cell)
+                prev.configure(image=win._thumb, text="")
+            except Exception as ex:
+                win._thumb = None
+                prev.configure(image="", text=f"无法预览：\n{ex}")
+
+        lb.bind("<<ListboxSelect>>", show_preview)
+        lb.bind("<Double-Button-1>", lambda e: use_selected())
+        lb.selection_set(0)
+        show_preview()
+
+        def use_selected():
+            sel = lb.curselection()
+            if sel:
+                self.load_pet_file(items[sel[0]][1])
+            win.destroy()
+
+        btns = tk.Frame(win)
+        btns.grid(row=1, column=0, columnspan=2, pady=(0, 8))
+        tk.Button(btns, text="使用这只", width=12, command=use_selected).pack(side="left", padx=4)
+        tk.Button(btns, text="导入文件（zip/图片）…", width=20,
+                  command=lambda: (win.destroy(), self.import_sheet())).pack(side="left", padx=4)
+
+        sites = tk.Frame(win)
+        sites.grid(row=2, column=0, columnspan=2, pady=(0, 12))
+        tk.Label(sites, text="想要更多宠物？").pack(side="left")
+        for label, url in PET_SITES:
+            short = label.split(" - ")[0]
+            tk.Button(sites, text=short,
+                      command=lambda u=url: webbrowser.open(u)).pack(side="left", padx=3)
 
     def installed_pets(self):
         """扫描本机已有的宠物：~/.codex/pets（Codex/petdex 等安装）+ UPet 自己导入的。"""
@@ -650,6 +725,7 @@ class UPet:
         m.add_cascade(label="速度", menu=speed)
 
         m.add_separator()
+        m.add_command(label="选择宠物…", command=self.open_chooser)
 
         pets_menu = tk.Menu(m, tearoff=0)
         pets = self.installed_pets()
