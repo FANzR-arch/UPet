@@ -28,6 +28,7 @@
     键鼠长时间没动 -> 失落打瞌睡；回来时跳跃欢迎
 """
 import ctypes
+import hashlib
 import json
 import os
 import random
@@ -130,6 +131,14 @@ def resource_path(rel):
     """打包进 exe 的资源路径（PyInstaller 解压到 _MEIPASS）。"""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, rel)
+
+
+def file_md5(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def enable_dpi_awareness():
@@ -405,7 +414,7 @@ class UPet:
         except Exception:
             pass
 
-        items = [("Phil仔（内置默认）", BUNDLED_PET)] + self.installed_pets()
+        items = self.pet_choices()
 
         body = ttk.Frame(win, padding=16)
         body.pack(fill="both", expand=True)
@@ -525,6 +534,20 @@ class UPet:
         w, h = win.winfo_reqwidth(), win.winfo_reqheight()
         sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
         win.geometry(f"+{max(20, (sw - w) // 2)}+{max(20, (sh - h) // 2)}")
+
+    def pet_choices(self):
+        """内置默认 + 已安装宠物，按文件内容去重（同一只宠物只出现一次）。"""
+        choices, seen = [], set()
+        for name, path in [("Phil仔（内置默认）", BUNDLED_PET)] + self.installed_pets():
+            try:
+                digest = file_md5(path)
+            except OSError:
+                continue
+            if digest in seen:
+                continue
+            seen.add(digest)
+            choices.append((name, path))
+        return choices
 
     def installed_pets(self):
         """扫描本机已有的宠物：~/.codex/pets（Codex/petdex 等安装）+ UPet 自己导入的。"""
@@ -833,15 +856,11 @@ class UPet:
         m.add_command(label="选择宠物…", command=self.open_chooser)
 
         pets_menu = tk.Menu(m, tearoff=0)
-        pets = self.installed_pets()
         cur = self.sheet.path if self.sheet else ""
-        if pets:
-            for name, p in pets:
-                pets_menu.add_radiobutton(label=name, value=p,
-                                          variable=tk.StringVar(value=cur),
-                                          command=lambda p=p: self.load_pet_file(p))
-        else:
-            pets_menu.add_command(label="（没找到，去「获取宠物」逛逛）", state="disabled")
+        for name, p in self.pet_choices():
+            pets_menu.add_radiobutton(label=name, value=p,
+                                      variable=tk.StringVar(value=cur),
+                                      command=lambda p=p: self.load_pet_file(p))
         m.add_cascade(label="我的宠物", menu=pets_menu)
 
         get_menu = tk.Menu(m, tearoff=0)
