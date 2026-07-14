@@ -15,7 +15,12 @@
     Ctrl+上下拖 -> 连续放大缩小（脚底位置不动）
     鼠标滚轮    -> 逐级放大缩小
     鼠标悬停    -> 张望 / 挥手
-    右键        -> 菜单（导入精灵图 / 动作 / 大小 / 速度 / 感知键鼠 / 开机自启 / 退出）
+    右键        -> 菜单（我的宠物 / 获取宠物 / 动作 / 大小 / 速度 / 感知键鼠 / 开机自启 / 退出）
+
+获取宠物:
+    「获取宠物」菜单直达 Petdex、Awesome Codex Pet、CodexPets.net 三个宠物站；
+    用 npx / PowerShell 安装到 ~/.codex/pets 的宠物会出现在「我的宠物」里一键切换；
+    从 codexpets.net 下载的 zip 包用「导入下载的宠物」直接选中即可（兼容 8x9 / 8x11 网格）。
 
 感知键鼠（可在右键菜单关闭，仅本机检测“是否有输入”，不记录内容）:
     连续打字       -> 思考工作
@@ -29,6 +34,8 @@ import random
 import sys
 import time
 import tkinter as tk
+import webbrowser
+import zipfile
 from collections import deque
 from ctypes import wintypes
 from tkinter import filedialog, messagebox
@@ -39,6 +46,15 @@ APP_NAME = "UPet"
 KEY_COLOR = "#ff00fe"  # 透明色键（画面中不会出现的颜色）
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), APP_NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+CODEX_PETS_DIR = os.path.join(os.path.expanduser("~"), ".codex", "pets")   # Codex / petdex 等安装位置
+MY_PETS_DIR = os.path.join(CONFIG_DIR, "pets")                             # 从 zip 导入的宠物存这里
+
+# 宠物获取站点（右键菜单「获取宠物」）
+PET_SITES = [
+    ("Petdex - 3600+ 宠物", "https://petdex.dev/"),
+    ("Awesome Codex Pet - 中文社区精选", "https://awesome-codex-pet.pages.dev/"),
+    ("CodexPets.net - 可直接下载 zip", "https://codexpets.net/"),
+]
 
 # Codex 宠物精灵图固定为 8 列 x 11 行，每行一个动作
 GRID_COLS, GRID_ROWS = 8, 11
@@ -121,21 +137,58 @@ def save_config(cfg):
         pass
 
 
+def extract_sheet_from_zip(zip_path):
+    """从宠物 zip 包（如 codexpets.net 的下载包）提取精灵图，
+    存到 %APPDATA%/UPet/pets/<包名>/，返回精灵图路径。"""
+    with zipfile.ZipFile(zip_path) as z:
+        imgs = [n for n in z.namelist()
+                if n.lower().endswith((".webp", ".png")) and not n.endswith("/")]
+        if not imgs:
+            raise ValueError("zip 里没有找到 webp/png 图片")
+
+        def score(n):
+            base = os.path.basename(n).lower()
+            s = z.getinfo(n).file_size
+            if "spritesheet" in base:
+                s += 10 ** 9
+            elif "sprite" in base:
+                s += 10 ** 8
+            if "preview" in base or "thumb" in base or "source" in base:
+                s -= 10 ** 8
+            return s
+
+        best = max(imgs, key=score)
+        name = os.path.splitext(os.path.basename(zip_path))[0] or "pet"
+        dest_dir = os.path.join(MY_PETS_DIR, name)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, "spritesheet" + os.path.splitext(best)[1].lower())
+        with z.open(best) as src, open(dest, "wb") as out:
+            out.write(src.read())
+    return dest
+
+
 class SpriteSheet:
-    """解析精灵图：切格子、按透明度检测每行实际帧数。"""
+    """解析精灵图：切格子、按透明度检测每行实际帧数。
+
+    兼容 8x11（含张望行）和 8x9（仅动作行）等网格：
+    列数固定为 8，行数按官方格子 192x208 的高宽比自动推算。
+    """
 
     def __init__(self, path):
         self.path = path
         img = Image.open(path).convert("RGBA")
         self.cell_w = img.width // GRID_COLS
-        self.cell_h = img.height // GRID_ROWS
-        if self.cell_w < 8 or self.cell_h < 8:
-            raise ValueError("图片太小，不像是 8x11 的精灵图")
+        if self.cell_w < 8:
+            raise ValueError("图片太小，不像是 8 列的精灵图")
+        est_ch = self.cell_w * 13.0 / 12.0   # 192:208 = 12:13
+        rows = max(1, min(GRID_ROWS, round(img.height / est_ch)))
+        self.rows = rows
+        self.cell_h = img.height // rows
         self.image = img
         alpha = img.getchannel("A")
         self.anims = {}   # name -> (row, frame_count)
         self.labels = {}  # name -> 中文名
-        for row, (name, label) in enumerate(ROW_LAYOUT):
+        for row, (name, label) in enumerate(ROW_LAYOUT[:rows]):
             if (row + 1) * self.cell_h > img.height:
                 break
             count = 0
@@ -246,8 +299,14 @@ class UPet:
         for p in candidates:
             if p and os.path.exists(p) and self.load_sheet(p, quiet=True):
                 return True
-        # 首次使用：弹出导入对话框
-        messagebox.showinfo(APP_NAME, "欢迎使用 UPet！\n请选择一张宠物精灵图（8 列 x 11 行的透明 WebP/PNG）。")
+        # 首次使用：先看看 Codex 宠物目录里有没有现成的
+        pets = self.installed_pets()
+        if pets and self.load_sheet(pets[0][1], quiet=True):
+            return True
+        messagebox.showinfo(APP_NAME,
+                            "欢迎使用 UPet！\n\n"
+                            "请选择一张宠物精灵图（WebP/PNG）或宠物 zip 包。\n"
+                            "还没有宠物？之后可以右键宠物 →「获取宠物」逛宠物站。")
         return self.import_sheet()
 
     def load_sheet(self, path, quiet=False):
@@ -264,16 +323,46 @@ class UPet:
         return True
 
     def import_sheet(self):
+        downloads = os.path.join(os.path.expanduser("~"), "Downloads")
         path = filedialog.askopenfilename(
-            title="选择宠物精灵图",
-            filetypes=[("图片", "*.webp;*.png"), ("所有文件", "*.*")])
+            title="选择宠物精灵图或宠物 zip 包",
+            initialdir=downloads if os.path.isdir(downloads) else None,
+            filetypes=[("宠物文件", "*.webp;*.png;*.zip"), ("所有文件", "*.*")])
         if not path:
             return self.sheet is not None
+        return self.load_pet_file(path)
+
+    def load_pet_file(self, path):
+        """加载宠物文件：图片直接加载，zip 先提取精灵图。"""
+        if path.lower().endswith(".zip"):
+            try:
+                path = extract_sheet_from_zip(path)
+            except Exception as e:
+                messagebox.showerror(APP_NAME, f"无法从 zip 导入宠物：\n{e}")
+                return self.sheet is not None
         ok = self.load_sheet(path)
         if ok:
             self.set_anim("idle")
             self.set_anim_size()
         return ok
+
+    def installed_pets(self):
+        """扫描本机已有的宠物：~/.codex/pets（Codex/petdex 等安装）+ UPet 自己导入的。"""
+        pets = []
+        for base in (CODEX_PETS_DIR, MY_PETS_DIR):
+            if not os.path.isdir(base):
+                continue
+            try:
+                names = sorted(os.listdir(base))
+            except OSError:
+                continue
+            for d in names:
+                for fn in ("spritesheet.webp", "spritesheet.png"):
+                    p = os.path.join(base, d, fn)
+                    if os.path.exists(p):
+                        pets.append((d, p))
+                        break
+        return pets
 
     def frames(self, name):
         if name not in self.frame_cache:
@@ -366,7 +455,8 @@ class UPet:
         if self.mode != "idle":
             self.schedule_ambient()
             return
-        choice = random.choice(AMBIENT_POOL)
+        pool = [a for a in AMBIENT_POOL if a == "walk" or a in self.sheet.anims]
+        choice = random.choice(pool)
         if choice == "walk":
             if self.wander:
                 self.start_walk()
@@ -560,7 +650,27 @@ class UPet:
         m.add_cascade(label="速度", menu=speed)
 
         m.add_separator()
-        m.add_command(label="导入精灵图…", command=self.import_sheet)
+
+        pets_menu = tk.Menu(m, tearoff=0)
+        pets = self.installed_pets()
+        cur = self.sheet.path if self.sheet else ""
+        if pets:
+            for name, p in pets:
+                pets_menu.add_radiobutton(label=name, value=p,
+                                          variable=tk.StringVar(value=cur),
+                                          command=lambda p=p: self.load_pet_file(p))
+        else:
+            pets_menu.add_command(label="（没找到，去「获取宠物」逛逛）", state="disabled")
+        m.add_cascade(label="我的宠物", menu=pets_menu)
+
+        get_menu = tk.Menu(m, tearoff=0)
+        for label, url in PET_SITES:
+            get_menu.add_command(label=label, command=lambda u=url: webbrowser.open(u))
+        get_menu.add_separator()
+        get_menu.add_command(label="导入下载的宠物（zip/图片）…", command=self.import_sheet)
+        m.add_cascade(label="获取宠物", menu=get_menu)
+
+        m.add_separator()
         m.add_checkbutton(label="自由走动", onvalue=True, offvalue=False,
                           variable=tk.BooleanVar(value=self.wander),
                           command=self.toggle_wander)
