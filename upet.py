@@ -409,51 +409,97 @@ class UPet:
 
         body = ttk.Frame(win, padding=16)
         body.pack(fill="both", expand=True)
-        body.columnconfigure(1, weight=1)
 
         ttk.Label(body, text="选一只宠物放到桌面上",
                   font=("Microsoft YaHei UI", 13, "bold")).grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+            row=0, column=0, sticky="w", pady=(0, 12))
 
-        tree = ttk.Treeview(body, show="tree", selectmode="browse",
-                            height=min(12, max(7, len(items))))
-        tree.column("#0", width=230)
-        for i, (name, _) in enumerate(items):
-            tree.insert("", "end", iid=str(i), text=" " + name)
-        tree.grid(row=1, column=0, sticky="ns")
+        # ---- 动图卡片画廊 ----
+        style = ttk.Style()
+        bg = style.lookup("TFrame", "background") or "#fafafa"
+        dark = bool(darkdetect and darkdetect.isDark()) if darkdetect else False
+        accent = "#4cc2ff" if dark else "#0067c0"
+        COLS, THUMB = 3, (132, 143)
+        CARD_H = 196
+        n_rows = (len(items) + COLS - 1) // COLS
 
-        prev = ttk.Label(body, anchor="center")
-        prev.grid(row=1, column=1, padx=(16, 0))
+        gallery = ttk.Frame(body)
+        gallery.grid(row=1, column=0, sticky="nsew")
+        canvas = tk.Canvas(gallery, width=COLS * 172 + 4,
+                           height=min(2, n_rows) * CARD_H,
+                           bg=bg, highlightthickness=0, bd=0)
+        canvas.grid(row=0, column=0)
+        if n_rows > 2:
+            vsb = ttk.Scrollbar(gallery, orient="vertical", command=canvas.yview)
+            vsb.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+            canvas.configure(yscrollcommand=vsb.set)
+        grid_frame = tk.Frame(canvas, bg=bg)
+        canvas.create_window((0, 0), window=grid_frame, anchor="nw")
+        grid_frame.bind("<Configure>",
+                        lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        win.bind("<MouseWheel>",
+                 lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
 
-        def current_path():
-            sel = tree.selection()
-            return items[int(sel[0])][1] if sel else None
-
-        def show_preview(_e=None):
-            path = current_path()
-            if not path:
-                return
-            try:
-                sh_ = SpriteSheet(path)
-                cell = sh_.image.crop((0, 0, sh_.cell_w, sh_.cell_h))
-                cell.thumbnail((176, 190), Image.Resampling.LANCZOS)
-                win._thumb = ImageTk.PhotoImage(cell)
-                prev.configure(image=win._thumb, text="")
-            except Exception as ex:
-                win._thumb = None
-                prev.configure(image="", text=f"无法预览：\n{ex}")
+        win._anims = []                       # 卡片动画帧
+        selected = {"path": None, "card": None}
 
         def use_selected(_e=None):
-            p = current_path()
-            if p:
-                self.load_pet_file(p)
+            if selected["path"]:
+                self.load_pet_file(selected["path"])
             win.destroy()
 
-        tree.bind("<<TreeviewSelect>>", show_preview)
-        tree.bind("<Double-Button-1>", use_selected)
-        tree.selection_set("0")
-        tree.focus("0")
-        show_preview()
+        def make_card(name, path):
+            card = tk.Frame(grid_frame, bg=bg, highlightthickness=2,
+                            highlightbackground=bg, cursor="hand2")
+            img_lbl = tk.Label(card, bg=bg)
+            img_lbl.pack(padx=10, pady=(10, 2))
+            txt = tk.Label(card, text=name, bg=bg,
+                           font=("Microsoft YaHei UI", 9), wraplength=140)
+            txt.pack(pady=(0, 8))
+            frames = []
+            try:
+                sh_ = SpriteSheet(path)
+                row, count = sh_.anims["idle"]
+                for i in range(count):
+                    cell = sh_.image.crop((i * sh_.cell_w, row * sh_.cell_h,
+                                           (i + 1) * sh_.cell_w, (row + 1) * sh_.cell_h))
+                    cell.thumbnail(THUMB, Image.Resampling.LANCZOS)
+                    frames.append(ImageTk.PhotoImage(cell))
+            except Exception:
+                txt.configure(text=f"{name}\n（无法加载）")
+            if frames:
+                img_lbl.configure(image=frames[0])
+                win._anims.append({"lbl": img_lbl, "frames": frames, "i": 0})
+
+            def select(_e=None):
+                if selected["card"] is not None and selected["card"].winfo_exists():
+                    selected["card"].configure(highlightbackground=bg)
+                selected["path"], selected["card"] = path, card
+                card.configure(highlightbackground=accent)
+
+            for w in (card, img_lbl, txt):
+                w.bind("<Button-1>", select)
+                w.bind("<Double-Button-1>", lambda e: (select(), use_selected()))
+            return card, select
+
+        first_select = None
+        for i, (name, path) in enumerate(items):
+            card, sel_fn = make_card(name, path)
+            card.grid(row=i // COLS, column=i % COLS, padx=5, pady=5, sticky="n")
+            if first_select is None:
+                first_select = sel_fn
+        if first_select:
+            first_select()
+
+        def tick_gallery():
+            if not win.winfo_exists():
+                return
+            for a in win._anims:
+                a["i"] = (a["i"] + 1) % len(a["frames"])
+                a["lbl"].configure(image=a["frames"][a["i"]])
+            win.after(200, tick_gallery)
+
+        win.after(200, tick_gallery)
 
         btns = ttk.Frame(body)
         btns.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
