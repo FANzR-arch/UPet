@@ -9,11 +9,13 @@
     pyinstaller 打包后双击 UPet.exe
 
 互动:
-    单击       -> 挥手
-    双击       -> 跳跃
-    左右拖动   -> 跟随方向播放走路动画
-    鼠标悬停   -> 张望 / 挥手
-    右键       -> 菜单（导入精灵图 / 动作 / 大小 / 速度 / 感知键鼠 / 开机自启 / 退出）
+    单击        -> 挥手
+    双击        -> 跳跃
+    左右拖动    -> 跟随方向播放走路动画
+    Ctrl+上下拖 -> 连续放大缩小（脚底位置不动）
+    鼠标滚轮    -> 逐级放大缩小
+    鼠标悬停    -> 张望 / 挥手
+    右键        -> 菜单（导入精灵图 / 动作 / 大小 / 速度 / 感知键鼠 / 开机自启 / 退出）
 
 感知键鼠（可在右键菜单关闭，仅本机检测“是否有输入”，不记录内容）:
     连续打字       -> 思考工作
@@ -60,6 +62,7 @@ AMBIENT_POOL = ["wave", "jump", "waiting", "working", "checking",
                 "observe-a", "observe-b", "walk", "walk", "observe-a", "observe-b"]
 
 SCALES = [("50%", 0.5), ("75%", 0.75), ("100%", 1.0), ("150%", 1.5), ("200%", 2.0)]
+MIN_SCALE, MAX_SCALE = 0.25, 3.0
 SPEEDS = [("慢", 300), ("正常", 220), ("快", 140)]
 
 # 各动作相对速度：>1 表示这个动作播得更慢（每帧停留更久）
@@ -203,6 +206,8 @@ class UPet:
         self._pending_wave = None
         self._drag = None
         self._moved = False
+        self._resize = None        # (起始 y_root, 起始 scale)，Ctrl 拖动缩放中
+        self._resize_at = 0.0      # 上次应用缩放的时间（节流）
 
         self.label.bind("<ButtonPress-1>", self.on_press)
         self.label.bind("<B1-Motion>", self.on_drag)
@@ -210,6 +215,7 @@ class UPet:
         self.label.bind("<Double-Button-1>", self.on_double)
         self.label.bind("<Button-3>", self.on_menu)
         self.label.bind("<Enter>", self.on_hover)
+        self.label.bind("<MouseWheel>", self.on_wheel)
 
         if not self.try_load_initial_sheet():
             sys.exit(0)
@@ -433,11 +439,49 @@ class UPet:
             self.start_react("checking")
 
     # ---------- 交互 ----------
+    def apply_scale(self, s):
+        """缩放并保持脚底位置不动。"""
+        s = max(MIN_SCALE, min(MAX_SCALE, s))
+        if abs(s - self.scale) < 0.01:
+            return
+        ow, oh = self.pet_size()
+        x, y = self.root.winfo_x(), self.root.winfo_y()
+        self.scale = s
+        self.frame_cache = {}
+        nw, nh = self.pet_size()
+        nx, ny = x + (ow - nw) // 2, y + (oh - nh)
+        self.root.geometry(f"{nw}x{nh}+{nx}+{ny}")
+        frames = self.frames(self.anim)
+        self.frame_idx %= len(frames)
+        self.label.configure(image=frames[self.frame_idx])
+
+    def save_scale(self):
+        self.cfg["scale"] = self.scale
+        save_config(self.cfg)
+        self.save_pos()
+
+    def on_wheel(self, e):
+        factor = 1.08 if e.delta > 0 else 1 / 1.08
+        self.apply_scale(self.scale * factor)
+        self.save_scale()
+
     def on_press(self, e):
+        if e.state & 0x0004:  # 按住 Ctrl：进入拖动缩放
+            self._resize = (e.y_root, self.scale)
+            self._drag = None
+            return
         self._drag = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
         self._moved = False
 
     def on_drag(self, e):
+        if self._resize is not None:
+            now = time.monotonic()
+            if now - self._resize_at < 0.04:  # 节流，避免高频重渲染
+                return
+            self._resize_at = now
+            y0, s0 = self._resize
+            self.apply_scale(s0 * (1 + (y0 - e.y_root) / 200.0))
+            return
         if self._drag is None:
             return
         cx = self.root.winfo_x()
@@ -456,6 +500,10 @@ class UPet:
         self.root.geometry(f"+{nx}+{ny}")
 
     def on_release(self, e):
+        if self._resize is not None:
+            self._resize = None
+            self.save_scale()
+            return
         self._drag = None
         if self._moved:
             if self.mode == "drag":
@@ -529,12 +577,8 @@ class UPet:
         m.tk_popup(e.x_root, e.y_root)
 
     def set_scale(self, s):
-        self.scale = s
-        self.frame_cache = {}
-        self.frame_idx = 0
-        self.set_anim_size()
-        self.cfg["scale"] = s
-        save_config(self.cfg)
+        self.apply_scale(s)
+        self.save_scale()
 
     def set_speed(self, ms):
         self.frame_ms = ms
