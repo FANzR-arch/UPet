@@ -1,0 +1,82 @@
+# UPet —— 独立桌面宠物小工具
+
+一张精灵图 = 一只桌宠。导入 Codex 格式的宠物精灵图，
+它就会常驻你的桌面：始终置顶、会打瞌睡、陪你打字干活。**不需要 Codex。**
+
+<p align="center">
+  <img src="exports/wave.gif" alt="挥手">
+  <img src="exports/walk-right.gif" alt="走路">
+  <img src="exports/jump.gif" alt="跳跃">
+  <img src="exports/working.gif" alt="思考">
+</p>
+
+## 快速开始
+
+从 [Releases](../../releases) 下载 `UPet.exe`（单文件，免安装、免 Python 环境），双击即可运行。
+从源码运行：`pip install pillow` 后 `python upet.py`。
+
+「安装」方式：把 `UPet.exe` 和宠物精灵图 `spritesheet.webp` 放到同一个目录
+（比如 `D:\Tools\UPet\`），双击 exe，右键宠物勾选「开机自启」即完成安装。
+
+- exe 启动时会自动加载**同目录下的 `spritesheet.webp`**；
+- 找不到时会弹出文件选择框，手动导入任意宠物精灵图；
+- 导入过一次后路径会记住（配置存在 `%APPDATA%\UPet\config.json`）。
+
+## 互动方式
+
+| 操作 | 效果 |
+|------|------|
+| 单击 | 挥手 |
+| 双击 | 跳跃 |
+| 左右拖动 | 跟随拖动方向播放走路动画，松手落位（位置会记住） |
+| 鼠标悬停 | 张望或挥手（有冷却，不会太频繁） |
+| 右键 | 菜单：动作 / 大小 / 速度 / 导入精灵图 / 自由走动 / 感知键鼠活动 / 移到屏幕顶部 / 开机自启 / 退出 |
+
+平时它会待机呼吸，每隔一会儿随机挥手、张望、思考，或在屏幕上走两步（可在菜单里关掉「自由走动」）。
+
+## 感知键鼠活动
+
+开启时（默认开，右键菜单可关），宠物会对你的电脑操作做出反应：
+
+| 你的行为 | 宠物反应 |
+|------|------|
+| 连续打字 | 进入「思考工作」，停止打字后回到待机 |
+| 连续点击鼠标 | 做「检查」动作 |
+| 键鼠 2 分钟没动 | 失落打瞌睡 |
+| 打瞌睡后你回来了 | 跳一下欢迎 |
+
+实现只调用 Windows API 判断「是否有按键/点击」，不记录任何按键内容，不联网。
+
+## 导入其他宠物
+
+支持 Codex 宠物格式的精灵图：**8 列 × 11 行**的透明 WebP/PNG，行顺序为
+待机 / 向左走 / 向右走 / 挥手 / 跳跃 / 失落 / 等待 / 思考 / 检查 / 张望 A / 张望 B。
+每行实际帧数会按透明度自动检测，格子尺寸按图片大小自动推算。
+
+Codex 里的宠物在 `C:\Users\<你>\.codex\pets\<宠物名>\spritesheet.webp`，
+右键菜单「导入精灵图…」选中即可换皮。
+
+## 目录说明
+
+| 文件 | 说明 |
+|------|------|
+| `upet.py` | 工具源码（Python + tkinter + Pillow） |
+| `spritesheet.webp` / `pet.json` | 示例宠物 Phil仔 的素材 |
+| `export_animations.py` | 把每个动作导出为独立动图的脚本 |
+| `exports/` | 已导出的各动作透明动态 WebP + GIF（可用于网页、PPT、聊天、OBS） |
+| `icon.ico` | exe 图标（Phil仔头像） |
+
+## 重新打包
+
+改了 `upet.py` 之后重新生成 exe：
+
+```
+python -m PyInstaller --noconfirm --onefile --windowed --name UPet --icon icon.ico --exclude-module numpy --exclude-module charset_normalizer upet.py
+```
+
+## 重新导出动图
+
+```
+python export_animations.py            # 原始尺寸 8fps
+python export_animations.py --scale 2  # 放大 2 倍
+```
