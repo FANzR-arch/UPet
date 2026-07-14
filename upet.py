@@ -126,8 +126,8 @@ def resource_path(rel):
     return os.path.join(base, rel)
 
 
-# 内置默认宠物：Codex 官方默认宠物（来自 persistent.oaistatic.com/codex/pets/v1）
-BUNDLED_PET = resource_path(os.path.join("assets", "codex-default.webp"))
+# 内置默认宠物：Phil仔（仓库自带的示例宠物）
+BUNDLED_PET = resource_path("spritesheet.webp")
 
 
 def load_config():
@@ -371,7 +371,7 @@ class UPet:
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         win.geometry(f"+{max(20, sw // 2 - 210)}+{max(20, sh // 2 - 180)}")
 
-        items = [("Codex（内置默认）", BUNDLED_PET)] + self.installed_pets()
+        items = [("Phil仔（内置默认）", BUNDLED_PET)] + self.installed_pets()
 
         lb = tk.Listbox(win, height=max(6, min(12, len(items))), width=30,
                         exportselection=False)
