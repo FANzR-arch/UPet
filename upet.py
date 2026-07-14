@@ -38,9 +38,15 @@ import webbrowser
 import zipfile
 from collections import deque
 from ctypes import wintypes
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
+
+try:  # 界面主题（Windows 11 风格），缺了也能跑
+    import darkdetect
+    import sv_ttk
+except ImportError:
+    sv_ttk = darkdetect = None
 
 APP_NAME = "UPet"
 KEY_COLOR = "#ff00fe"  # 透明色键（画面中不会出现的颜色）
@@ -124,6 +130,25 @@ def resource_path(rel):
     """打包进 exe 的资源路径（PyInstaller 解压到 _MEIPASS）。"""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, rel)
+
+
+def enable_dpi_awareness():
+    """高分屏下保持画面清晰（125%/150% 缩放不再发虚）。"""
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+
+def apply_theme(root):
+    """应用 Sun Valley（Windows 11 风格）主题，跟随系统深浅色。"""
+    if sv_ttk is None:
+        return
+    try:
+        dark = bool(darkdetect and darkdetect.isDark())
+        sv_ttk.set_theme("dark" if dark else "light")
+    except Exception:
+        pass
 
 
 # 内置默认宠物：Phil仔（仓库自带的示例宠物）
@@ -242,6 +267,7 @@ class UPet:
         self.wander = bool(self.cfg.get("wander", True))
         self.sense = bool(self.cfg.get("sense", True))
 
+        enable_dpi_awareness()
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.title(APP_NAME)
@@ -249,6 +275,12 @@ class UPet:
         self.root.attributes("-topmost", True)
         self.root.attributes("-transparentcolor", KEY_COLOR)
         self.root.configure(bg=KEY_COLOR)
+        try:  # 让对话框控件按系统缩放比例显示
+            self.root.tk.call("tk", "scaling",
+                              ctypes.windll.shcore.GetScaleFactorForDevice(0) / 75.0)
+        except Exception:
+            pass
+        apply_theme(self.root)
 
         self.label = tk.Label(self.root, bg=KEY_COLOR, bd=0, highlightthickness=0)
         self.label.pack()
@@ -368,58 +400,85 @@ class UPet:
         win.title("选择宠物 - UPet")
         win.attributes("-topmost", True)
         win.resizable(False, False)
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        win.geometry(f"+{max(20, sw // 2 - 210)}+{max(20, sh // 2 - 180)}")
+        try:
+            win.iconbitmap(resource_path("icon.ico"))
+        except Exception:
+            pass
 
         items = [("Phil仔（内置默认）", BUNDLED_PET)] + self.installed_pets()
 
-        lb = tk.Listbox(win, height=max(6, min(12, len(items))), width=30,
-                        exportselection=False)
-        for name, _ in items:
-            lb.insert("end", name)
-        lb.grid(row=0, column=0, padx=(12, 8), pady=12, sticky="ns")
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(1, weight=1)
 
-        prev = tk.Label(win, anchor="center")
-        prev.grid(row=0, column=1, padx=(0, 12), pady=12)
+        ttk.Label(body, text="选一只宠物放到桌面上",
+                  font=("Microsoft YaHei UI", 13, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+
+        tree = ttk.Treeview(body, show="tree", selectmode="browse",
+                            height=min(12, max(7, len(items))))
+        tree.column("#0", width=230)
+        for i, (name, _) in enumerate(items):
+            tree.insert("", "end", iid=str(i), text=" " + name)
+        tree.grid(row=1, column=0, sticky="ns")
+
+        prev = ttk.Label(body, anchor="center")
+        prev.grid(row=1, column=1, padx=(16, 0))
+
+        def current_path():
+            sel = tree.selection()
+            return items[int(sel[0])][1] if sel else None
 
         def show_preview(_e=None):
-            sel = lb.curselection()
-            if not sel:
+            path = current_path()
+            if not path:
                 return
             try:
-                sh_ = SpriteSheet(items[sel[0]][1])
+                sh_ = SpriteSheet(path)
                 cell = sh_.image.crop((0, 0, sh_.cell_w, sh_.cell_h))
-                cell.thumbnail((160, 176), Image.Resampling.LANCZOS)
+                cell.thumbnail((176, 190), Image.Resampling.LANCZOS)
                 win._thumb = ImageTk.PhotoImage(cell)
                 prev.configure(image=win._thumb, text="")
             except Exception as ex:
                 win._thumb = None
                 prev.configure(image="", text=f"无法预览：\n{ex}")
 
-        lb.bind("<<ListboxSelect>>", show_preview)
-        lb.bind("<Double-Button-1>", lambda e: use_selected())
-        lb.selection_set(0)
-        show_preview()
-
-        def use_selected():
-            sel = lb.curselection()
-            if sel:
-                self.load_pet_file(items[sel[0]][1])
+        def use_selected(_e=None):
+            p = current_path()
+            if p:
+                self.load_pet_file(p)
             win.destroy()
 
-        btns = tk.Frame(win)
-        btns.grid(row=1, column=0, columnspan=2, pady=(0, 8))
-        tk.Button(btns, text="使用这只", width=12, command=use_selected).pack(side="left", padx=4)
-        tk.Button(btns, text="导入文件（zip/图片）…", width=20,
-                  command=lambda: (win.destroy(), self.import_sheet())).pack(side="left", padx=4)
+        tree.bind("<<TreeviewSelect>>", show_preview)
+        tree.bind("<Double-Button-1>", use_selected)
+        tree.selection_set("0")
+        tree.focus("0")
+        show_preview()
 
-        sites = tk.Frame(win)
-        sites.grid(row=2, column=0, columnspan=2, pady=(0, 12))
-        tk.Label(sites, text="想要更多宠物？").pack(side="left")
+        btns = ttk.Frame(body)
+        btns.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        ttk.Button(btns, text="使用这只", style="Accent.TButton",
+                   command=use_selected).pack(side="left")
+        ttk.Button(btns, text="导入文件（zip/图片）…",
+                   command=lambda: (win.destroy(), self.import_sheet())).pack(
+            side="left", padx=(10, 0))
+
+        ttk.Separator(body).grid(row=3, column=0, columnspan=2, sticky="ew", pady=14)
+
+        sites = ttk.Frame(body)
+        sites.grid(row=4, column=0, columnspan=2, sticky="w")
+        ttk.Label(sites, text="想要更多宠物：").pack(side="left", padx=(0, 8))
         for label, url in PET_SITES:
             short = label.split(" - ")[0]
-            tk.Button(sites, text=short,
-                      command=lambda u=url: webbrowser.open(u)).pack(side="left", padx=3)
+            ttk.Button(sites, text=short,
+                       command=lambda u=url: webbrowser.open(u)).pack(
+                side="left", padx=(0, 8))
+
+        # 居中显示
+        win.update_idletasks()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry(f"+{max(20, (sw - w) // 2)}+{max(20, (sh - h) // 2)}")
 
     def installed_pets(self):
         """扫描本机已有的宠物：~/.codex/pets（Codex/petdex 等安装）+ UPet 自己导入的。"""
