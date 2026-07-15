@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """把 spritesheet.webp 按动作导出为独立动图（透明 WebP + GIF）。
 
-用法:  python export_animations.py [--scale 2] [--fps 8]
+用法:  python scripts/export_animations.py [--scale 2] [--fps 8]
 输出:  exports/<动作名>.webp 和 exports/<动作名>.gif
 """
 import argparse
 import os
 from PIL import Image
 
-SHEET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spritesheet.webp")
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exports")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SHEET = os.path.join(ROOT, "spritesheet.webp")
+OUT_DIR = os.path.join(ROOT, "exports")
 CELL_W, CELL_H = 192, 208
 
 # 每个动作: (行号, 帧数)

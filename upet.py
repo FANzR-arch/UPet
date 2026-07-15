@@ -15,7 +15,7 @@
     Ctrl+上下拖 -> 连续放大缩小（脚底位置不动）
     鼠标滚轮    -> 逐级放大缩小
     鼠标悬停    -> 张望 / 挥手
-    右键        -> 菜单（我的宠物 / 获取宠物 / 动作 / 大小 / 速度 / 感知键鼠 / 开机自启 / 退出）
+    右键        -> 菜单（选择宠物 / 获取宠物 / 动作 / 设置 / 使用说明 / 退出）
 
 获取宠物:
     「获取宠物」菜单直达 Petdex、Awesome Codex Pet、CodexPets.net 三个宠物站；
@@ -62,6 +62,7 @@ PET_SITES = [
     ("Awesome Codex Pet - 中文社区精选", "https://awesome-codex-pet.pages.dev/"),
     ("CodexPets.net - 可直接下载 zip", "https://codexpets.net/"),
 ]
+DOCS_URL = "https://github.com/FANzR-arch/UPet/blob/main/docs/使用说明.md"
 
 # Codex 宠物精灵图固定为 8 列 x 11 行，每行一个动作
 GRID_COLS, GRID_ROWS = 8, 11
@@ -510,24 +511,19 @@ class UPet:
 
         win.after(200, tick_gallery)
 
-        btns = ttk.Frame(body)
-        btns.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        ttk.Button(btns, text="使用这只", style="Accent.TButton",
+        bar = ttk.Frame(body)
+        bar.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        ttk.Button(bar, text="使用这只", style="Accent.TButton",
                    command=use_selected).pack(side="left")
-        ttk.Button(btns, text="导入文件（zip/图片）…",
+        ttk.Button(bar, text="导入文件…",
                    command=lambda: (win.destroy(), self.import_sheet())).pack(
             side="left", padx=(10, 0))
-
-        ttk.Separator(body).grid(row=3, column=0, columnspan=2, sticky="ew", pady=14)
-
-        sites = ttk.Frame(body)
-        sites.grid(row=4, column=0, columnspan=2, sticky="w")
-        ttk.Label(sites, text="想要更多宠物：").pack(side="left", padx=(0, 8))
+        more = ttk.Menubutton(bar, text="更多宠物")
+        mm = tk.Menu(more, tearoff=0)
         for label, url in PET_SITES:
-            short = label.split(" - ")[0]
-            ttk.Button(sites, text=short,
-                       command=lambda u=url: webbrowser.open(u)).pack(
-                side="left", padx=(0, 8))
+            mm.add_command(label=label, command=lambda u=url: webbrowser.open(u))
+        more.configure(menu=mm)
+        more.pack(side="right")
 
         # 居中显示
         win.update_idletasks()
@@ -832,36 +828,7 @@ class UPet:
     def on_menu(self, e):
         m = tk.Menu(self.root, tearoff=0)
 
-        act = tk.Menu(m, tearoff=0)
-        for name in self.sheet.anims:
-            act.add_command(label=self.sheet.labels.get(name, name),
-                            command=lambda n=name: self.play_oneshot(n))
-        m.add_cascade(label="动作", menu=act)
-
-        size = tk.Menu(m, tearoff=0)
-        for label, s in SCALES:
-            size.add_radiobutton(label=label, value=s,
-                                 variable=tk.DoubleVar(value=self.scale),
-                                 command=lambda s=s: self.set_scale(s))
-        m.add_cascade(label="大小", menu=size)
-
-        speed = tk.Menu(m, tearoff=0)
-        for label, ms in SPEEDS:
-            speed.add_radiobutton(label=label, value=ms,
-                                  variable=tk.IntVar(value=self.frame_ms),
-                                  command=lambda ms=ms: self.set_speed(ms))
-        m.add_cascade(label="速度", menu=speed)
-
-        m.add_separator()
         m.add_command(label="选择宠物…", command=self.open_chooser)
-
-        pets_menu = tk.Menu(m, tearoff=0)
-        cur = self.sheet.path if self.sheet else ""
-        for name, p in self.pet_choices():
-            pets_menu.add_radiobutton(label=name, value=p,
-                                      variable=tk.StringVar(value=cur),
-                                      command=lambda p=p: self.load_pet_file(p))
-        m.add_cascade(label="我的宠物", menu=pets_menu)
 
         get_menu = tk.Menu(m, tearoff=0)
         for label, url in PET_SITES:
@@ -870,18 +837,43 @@ class UPet:
         get_menu.add_command(label="导入下载的宠物（zip/图片）…", command=self.import_sheet)
         m.add_cascade(label="获取宠物", menu=get_menu)
 
+        act = tk.Menu(m, tearoff=0)
+        for name in self.sheet.anims:
+            act.add_command(label=self.sheet.labels.get(name, name),
+                            command=lambda n=name: self.play_oneshot(n))
+        m.add_cascade(label="动作", menu=act)
+
         m.add_separator()
-        m.add_checkbutton(label="自由走动", onvalue=True, offvalue=False,
-                          variable=tk.BooleanVar(value=self.wander),
-                          command=self.toggle_wander)
-        m.add_checkbutton(label="感知键鼠活动", onvalue=True, offvalue=False,
-                          variable=tk.BooleanVar(value=self.sense),
-                          command=self.toggle_sense)
-        m.add_command(label="移到屏幕顶部", command=self.snap_top)
-        m.add_command(label="移到右下角", command=self.snap_corner)
-        m.add_checkbutton(label="开机自启", onvalue=True, offvalue=False,
-                          variable=tk.BooleanVar(value=self.startup_enabled()),
-                          command=self.toggle_startup)
+
+        settings = tk.Menu(m, tearoff=0)
+        size = tk.Menu(settings, tearoff=0)
+        for label, s in SCALES:
+            size.add_radiobutton(label=label, value=s,
+                                 variable=tk.DoubleVar(value=self.scale),
+                                 command=lambda s=s: self.set_scale(s))
+        settings.add_cascade(label="大小", menu=size)
+        speed = tk.Menu(settings, tearoff=0)
+        for label, ms in SPEEDS:
+            speed.add_radiobutton(label=label, value=ms,
+                                  variable=tk.IntVar(value=self.frame_ms),
+                                  command=lambda ms=ms: self.set_speed(ms))
+        settings.add_cascade(label="速度", menu=speed)
+        settings.add_separator()
+        settings.add_checkbutton(label="自由走动", onvalue=True, offvalue=False,
+                                 variable=tk.BooleanVar(value=self.wander),
+                                 command=self.toggle_wander)
+        settings.add_checkbutton(label="感知键鼠活动", onvalue=True, offvalue=False,
+                                 variable=tk.BooleanVar(value=self.sense),
+                                 command=self.toggle_sense)
+        settings.add_checkbutton(label="开机自启", onvalue=True, offvalue=False,
+                                 variable=tk.BooleanVar(value=self.startup_enabled()),
+                                 command=self.toggle_startup)
+        settings.add_separator()
+        settings.add_command(label="移到屏幕顶部", command=self.snap_top)
+        settings.add_command(label="移到右下角", command=self.snap_corner)
+        m.add_cascade(label="设置", menu=settings)
+
+        m.add_command(label="使用说明", command=lambda: webbrowser.open(DOCS_URL))
         m.add_separator()
         m.add_command(label="退出", command=self.quit)
         m.tk_popup(e.x_root, e.y_root)
