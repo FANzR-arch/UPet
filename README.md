@@ -37,9 +37,10 @@
 |------|------|
 | `upet.py` | 全部源码（Python + tkinter + Pillow，主题 [sv-ttk](https://github.com/rdbende/Sun-Valley-ttk-theme)） |
 | `spritesheet.webp` / `pet.json` | 内置默认宠物 Phil仔 |
-| `docs/使用说明.md` | 用户手册 |
+| `docs/使用说明.md` | 用户手册（`快速上手.txt` 为 zip 包内附带的精简版） |
 | `exports/` | 各动作独立透明动图（WebP + GIF），可用于聊天/PPT/OBS |
-| `scripts/build.ps1` | 一键打包 exe |
+| `scripts/build.ps1` | 打包 exe |
+| `scripts/package.ps1` | 打包 exe 并生成发布 zip |
 | `scripts/export_animations.py` | 把精灵图导出为独立动图 |
 
 ## 从源码运行 / 打包
