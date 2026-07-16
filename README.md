@@ -17,17 +17,22 @@
   <a href="docs/使用说明.md">📖 使用说明</a>
 </p>
 
+<p align="center">
+  <sub><b>首次运行会看到蓝色的「Windows 已保护你的电脑」？</b>点「<b>更多信息</b>」→「<b>仍要运行</b>」即可。<br>
+  这只是因为没买代码签名证书，不是病毒——介意的话可以直接<a href="#从源码运行--打包">从源码运行</a>。</sub>
+</p>
+
 ## 三步上手
 
-1. **[下载 UPet.exe](https://github.com/FANzR-arch/UPet/releases/latest/download/UPet.exe)**（单文件，免安装、免运行环境；SmartScreen 拦截时点「更多信息」→「仍要运行」）
-2. **双击运行**——内置宠物直接出现在桌面，并弹出宠物画廊供挑选
+1. **[下载 UPet.exe](https://github.com/FANzR-arch/UPet/releases/latest/download/UPet.exe)**（单文件，免安装、免运行环境）
+2. **双击运行**——内置宠物直接出现在桌面，并弹出宠物画廊供挑选（被 SmartScreen 拦住见上方说明）
 3. 右键宠物 → 设置 → 勾选「**开机自启**」，从此它天天在
 
 ## 能做什么
 
 - **互动**：单击挥手、双击跳跃、拖动跟着走、Ctrl拖动/滚轮缩放、悬停会看你
 - **陪伴**：你打字它思考、你点鼠标它检查、你挂机它打瞌睡、你回来它跳起来欢迎（本地检测，不记录内容，可关闭）
-- **换装**：右键 →「选择宠物…」打开动图画廊；宠物可从 [Petdex](https://petdex.dev/)（3600+）、[Awesome Codex Pet](https://awesome-codex-pet.pages.dev/)、[CodexPets.net](https://codexpets.net/)（直接下 zip）获取，Codex 生成的宠物（`~/.codex/pets`）自动识别，zip/图片一键导入
+- **换装**：右键 →「选择宠物…」打开动图画廊。换新宠物最省事的是 [CodexPets.net](https://codexpets.net/)（842+，下载 zip → 右键「获取宠物」→ 导入，全程不碰命令行）；想要更大的库可以去 [Petdex](https://petdex.dev/)（3600+）或 [Awesome Codex Pet](https://awesome-codex-pet.pages.dev/)，但它们要复制页面上的 npx / PowerShell 命令执行。Codex 生成的宠物（`~/.codex/pets`）自动识别，无需导入
 
 详细玩法、宠物格式、常见问题 → **[使用说明](docs/使用说明.md)**
 
