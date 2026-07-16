@@ -17,10 +17,11 @@
     鼠标悬停    -> 张望 / 挥手
     右键        -> 菜单（选择宠物 / 获取宠物 / 动作 / 设置 / 使用说明 / 退出）
 
-获取宠物:
-    「获取宠物」菜单直达 Petdex、Awesome Codex Pet、CodexPets.net 三个宠物站；
-    用 npx / PowerShell 安装到 ~/.codex/pets 的宠物会出现在「我的宠物」里一键切换；
-    从 codexpets.net 下载的 zip 包用「导入下载的宠物」直接选中即可（兼容 8x9 / 8x11 网格）。
+获取宠物（「获取宠物」菜单按上手难度排序）:
+    codexpets.net    -> 下载 zip，用「导入下载的宠物」选中即可，不需要命令行（首选）
+    petdex.dev / awesome-codex-pet -> 库更大，但要复制页面上的 npx / PowerShell 命令执行
+    装到 ~/.codex/pets 的宠物（含 Codex 生成的）会自动出现在画廊里一键切换。
+    精灵图兼容 8x9 / 8x11 网格。
 
 感知键鼠（可在右键菜单关闭，仅本机检测“是否有输入”，不记录内容）:
     连续打字       -> 思考工作
@@ -56,13 +57,17 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 CODEX_PETS_DIR = os.path.join(os.path.expanduser("~"), ".codex", "pets")   # Codex / petdex 等安装位置
 MY_PETS_DIR = os.path.join(CONFIG_DIR, "pets")                             # 从 zip 导入的宠物存这里
 
-# 宠物获取站点（右键菜单「获取宠物」）
+# 宠物获取站点（右键菜单「获取宠物」）——按上手难度排，能直接下 zip 的排最前
 PET_SITES = [
-    ("Petdex - 3600+ 宠物", "https://petdex.dev/"),
-    ("Awesome Codex Pet - 中文社区精选", "https://awesome-codex-pet.pages.dev/"),
-    ("CodexPets.net - 可直接下载 zip", "https://codexpets.net/"),
+    ("CodexPets.net - 842+，下载 zip 导入（最简单）", "https://codexpets.net/"),
+    ("Petdex - 3600+，页面复制命令安装（需要命令行）", "https://petdex.dev/"),
+    ("Awesome Codex Pet - 中文社区精选（需要命令行）", "https://awesome-codex-pet.pages.dev/"),
 ]
 DOCS_URL = "https://github.com/FANzR-arch/UPet/blob/main/docs/使用说明.md"
+
+# 首次运行的气泡提示：把「右键是一切入口」这件事说清楚
+TIP_TEXT = "单击我挥手，双击我跳跃\n按住拖动带我走，滚轮调大小\n右键打开菜单（换宠物 / 设置 / 退出）"
+TIP_MS = 9000  # 气泡自动消失时间；用户一动手就提前收起
 
 # Codex 宠物精灵图固定为 8 列 x 11 行，每行一个动作
 GRID_COLS, GRID_ROWS = 8, 11
@@ -313,6 +318,9 @@ class UPet:
         self._moved = False
         self._resize = None        # (起始 y_root, 起始 scale)，Ctrl 拖动缩放中
         self._resize_at = 0.0      # 上次应用缩放的时间（节流）
+        self._tip = None           # 首次运行的提示气泡
+        self._tip_job = None
+        self._tips_pending = False # 画廊关掉后补一个演示
 
         self.label.bind("<ButtonPress-1>", self.on_press)
         self.label.bind("<B1-Motion>", self.on_drag)
@@ -342,9 +350,11 @@ class UPet:
         if os.environ.get("UPET_SELFTEST"):
             self.root.after(3000, self.quit)
         elif not self.cfg.get("chooser_shown"):
-            # 首次使用：宠物先出现，再弹出选择窗（不阻塞启动）
+            # 首次使用：宠物先出现，再弹出选择窗（不阻塞启动）；
+            # 选完宠物关掉画廊后，宠物挥手 + 冒气泡把互动方式演示一遍
             self.cfg["chooser_shown"] = True
             save_config(self.cfg)
+            self._tips_pending = True
             self.root.after(800, self.open_chooser)
 
     # ---------- 精灵图加载 ----------
@@ -410,6 +420,14 @@ class UPet:
         win.title("选择宠物 - UPet")
         win.attributes("-topmost", True)
         win.resizable(False, False)
+
+        def on_closed(e):
+            # 首次运行选完宠物 -> 演示一遍互动（子控件的 Destroy 不算）
+            if e.widget is win and self._tips_pending:
+                self._tips_pending = False
+                self.root.after(500, self.show_tips)
+        win.bind("<Destroy>", on_closed)
+
         try:
             win.iconbitmap(resource_path("icon.ico"))
         except Exception:
@@ -651,7 +669,8 @@ class UPet:
 
     def ambient_act(self):
         self._ambient_job = None
-        if self.mode != "idle":
+        # 气泡还亮着时别乱跑，否则宠物走了、提示留在原地
+        if self.mode != "idle" or self._tip is not None:
             self.schedule_ambient()
             return
         pool = [a for a in AMBIENT_POOL if a == "walk" or a in self.sheet.anims]
@@ -755,6 +774,7 @@ class UPet:
         self.save_scale()
 
     def on_press(self, e):
+        self.hide_tips()      # 上手了就不用再看提示
         if e.state & 0x0004:  # 按住 Ctrl：进入拖动缩放
             self._resize = (e.y_root, self.scale)
             self._drag = None
@@ -824,8 +844,58 @@ class UPet:
         self.cfg["x"], self.cfg["y"] = self.root.winfo_x(), self.root.winfo_y()
         save_config(self.cfg)
 
+    # ---------- 首次运行提示 ----------
+    def show_tips(self):
+        """宠物挥个手，旁边冒气泡说明怎么玩。点一下 / 动一下就收起。"""
+        if self._tip is not None:
+            return
+        self.play_oneshot("wave")
+
+        dark = bool(darkdetect and darkdetect.isDark()) if darkdetect else False
+        bg = "#2b2b2b" if dark else "#ffffff"
+        fg = "#f0f0f0" if dark else "#1a1a1a"
+        edge = "#4cc2ff" if dark else "#0067c0"
+
+        tip = tk.Toplevel(self.root)
+        self._tip = tip
+        tip.overrideredirect(True)
+        tip.attributes("-topmost", True)
+        tip.configure(bg=edge)          # 1px 描边靠外层背景色实现
+        inner = tk.Frame(tip, bg=bg)
+        inner.pack(padx=1, pady=1)
+        lbl = tk.Label(inner, text=TIP_TEXT, bg=bg, fg=fg, justify="left",
+                       font=("Microsoft YaHei UI", 9), padx=12, pady=9)
+        lbl.pack()
+        for w in (tip, inner, lbl):
+            w.bind("<Button-1>", lambda e: self.hide_tips())
+
+        # 贴在宠物上方；顶部放不下就翻到下方，再夹到屏幕内
+        tip.update_idletasks()
+        tw, th = tip.winfo_reqwidth(), tip.winfo_reqheight()
+        pw, ph = self.pet_size()
+        px, py = self.root.winfo_x(), self.root.winfo_y()
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        x, y = px + pw // 2 - tw // 2, py - th - 8
+        if y < 8:
+            y = py + ph + 8
+        x = max(8, min(x, sw - tw - 8))
+        y = max(8, min(y, sh - th - 8))
+        tip.geometry(f"+{int(x)}+{int(y)}")
+
+        self._tip_job = self.root.after(TIP_MS, self.hide_tips)
+
+    def hide_tips(self):
+        if self._tip_job is not None:
+            self.root.after_cancel(self._tip_job)
+            self._tip_job = None
+        if self._tip is not None:
+            if self._tip.winfo_exists():
+                self._tip.destroy()
+            self._tip = None
+
     # ---------- 菜单 ----------
     def on_menu(self, e):
+        self.hide_tips()
         m = tk.Menu(self.root, tearoff=0)
 
         m.add_command(label="选择宠物…", command=self.open_chooser)
