@@ -28,6 +28,11 @@
 2. **双击运行**——内置宠物直接出现在桌面，并弹出宠物画廊供挑选（被 SmartScreen 拦住见上方说明）
 3. 右键宠物 → 设置 → 勾选「**开机自启**」，从此它天天在
 
+> **用 Claude Code / AI Agent？** 仓库自带一键安装 skill（[skills/upet-install](skills/upet-install/SKILL.md)），对着 Agent 说「帮我安装 UPet」即可自动完成下载、安装、开机自启；也可直接运行：
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File skills\upet-install\scripts\install.ps1 -AutoStart
+> ```
+
 ## 能做什么
 
 - **互动**：单击挥手、双击跳跃、拖动跟着走、Ctrl拖动/滚轮缩放、悬停会看你
